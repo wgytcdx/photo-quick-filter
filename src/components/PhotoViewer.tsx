@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, type PointerEvent, type ReactNode } from '
 import type { Category, PhotoEntry } from '../lib/types';
 import type { AiSuggestion } from '../lib/ai-types';
 import { CATEGORY_LABELS, CATEGORY_COLORS, UNPREVIEWABLE_EXTENSIONS } from '../lib/constants';
+import { getPhotoPreviewUrl } from '../lib/photo-storage';
 
 interface PhotoViewerProps {
   photo: PhotoEntry | null;
@@ -37,9 +38,8 @@ function PhotoLoader({ photo }: { photo: PhotoEntry }): ReactNode {
     let cancelled = false;
     (async () => {
       try {
-        const file = await photo.fileHandle.getFile();
+        const objectUrl = await getPhotoPreviewUrl(photo);
         if (cancelled) return;
-        const objectUrl = URL.createObjectURL(file);
         urlRef.current = objectUrl;
         setUrl(objectUrl);
       } catch {
@@ -49,7 +49,7 @@ function PhotoLoader({ photo }: { photo: PhotoEntry }): ReactNode {
     return () => {
       cancelled = true;
       if (urlRef.current) {
-        URL.revokeObjectURL(urlRef.current);
+        if (urlRef.current.startsWith('blob:')) URL.revokeObjectURL(urlRef.current);
         urlRef.current = null;
       }
     };

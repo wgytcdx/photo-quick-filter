@@ -87,9 +87,10 @@ export function useAppState() {
       photo,
       originalIndex: current.currentIndex,
       category,
-      targetDirHandle: result.categoryDirHandle!,
-      targetName: result.targetName!,
-      targetRelativePath: result.targetRelativePath!,
+      targetDirHandle: result.categoryDirHandle,
+      targetUri: result.targetUri,
+      targetName: result.targetName ?? photo.name,
+      targetRelativePath: result.targetRelativePath ?? photo.relativePath,
     };
 
     setState(prev => ({
@@ -126,9 +127,10 @@ export function useAppState() {
       photo,
       originalIndex: current.currentIndex,
       category: suggestion.bucket,
-      targetDirHandle: result.categoryDirHandle!,
-      targetName: result.targetName!,
-      targetRelativePath: result.targetRelativePath!,
+      targetDirHandle: result.categoryDirHandle,
+      targetUri: result.targetUri,
+      targetName: result.targetName ?? photo.name,
+      targetRelativePath: result.targetRelativePath ?? photo.relativePath,
       isAiAdopted: true,
       aiBucket: suggestion.bucket,
       aiConfidence: suggestion.confidence,
@@ -178,9 +180,10 @@ export function useAppState() {
         photo,
         originalIndex: idx,
         category: bucket,
-        targetDirHandle: result.categoryDirHandle!,
-        targetName: result.targetName!,
-        targetRelativePath: result.targetRelativePath!,
+        targetDirHandle: result.categoryDirHandle,
+        targetUri: result.targetUri,
+        targetName: result.targetName ?? photo.name,
+        targetRelativePath: result.targetRelativePath ?? photo.relativePath,
         isAiAdopted: true,
         aiBucket: bucket,
         aiConfidence: suggestion.confidence,
@@ -222,10 +225,11 @@ export function useAppState() {
     }
 
     let updatedPhoto: PhotoEntry = { ...lastRecord.photo };
+    if (result.restoredPhoto) updatedPhoto = result.restoredPhoto;
     if (result.restoredFileHandle) updatedPhoto = { ...updatedPhoto, fileHandle: result.restoredFileHandle };
     if (result.restoredParentDirHandle) updatedPhoto = { ...updatedPhoto, parentDirHandle: result.restoredParentDirHandle };
     if (result.restoredName) updatedPhoto = { ...updatedPhoto, name: result.restoredName };
-    if (result.restoredRelativePath) updatedPhoto = { ...updatedPhoto, relativePath: result.restoredRelativePath };
+    if (result.restoredRelativePath) updatedPhoto = { ...updatedPhoto, id: result.restoredRelativePath, relativePath: result.restoredRelativePath };
 
     setState(prev => ({
       ...prev,

@@ -1,10 +1,21 @@
 export type Category = 'delete' | 'keep' | 'stash' | 'favorite';
+export type StorageKind = 'file-system-access' | 'capacitor-android';
+
+export interface PhotoStorageRoot {
+  kind: StorageKind;
+  handle?: FileSystemDirectoryHandle;
+  sourceId?: string;
+}
 
 export interface PhotoEntry {
+  id: string;
+  storageKind: StorageKind;
   name: string;
   relativePath: string;
-  parentDirHandle: FileSystemDirectoryHandle;
-  fileHandle: FileSystemFileHandle;
+  parentDirHandle?: FileSystemDirectoryHandle;
+  fileHandle?: FileSystemFileHandle;
+  nativeUri?: string;
+  mimeType?: string;
   size: number;
   lastModified: number;
 }
@@ -13,7 +24,8 @@ export interface ActionRecord {
   photo: PhotoEntry;
   originalIndex: number;
   category: Category;
-  targetDirHandle: FileSystemDirectoryHandle;
+  targetDirHandle?: FileSystemDirectoryHandle;
+  targetUri?: string;
   targetName: string;
   targetRelativePath: string;
   isAiAdopted?: boolean;
@@ -41,6 +53,7 @@ export interface MoveResult {
   success: boolean;
   categoryDirHandle?: FileSystemDirectoryHandle;
   targetFileHandle?: FileSystemFileHandle;
+  targetUri?: string;
   targetRelativePath?: string;
   targetName?: string;
   error?: string;
@@ -48,6 +61,7 @@ export interface MoveResult {
 
 export interface UndoResult {
   success: boolean;
+  restoredPhoto?: PhotoEntry;
   restoredFileHandle?: FileSystemFileHandle;
   restoredParentDirHandle?: FileSystemDirectoryHandle;
   restoredName?: string;
@@ -56,7 +70,7 @@ export interface UndoResult {
 }
 
 export interface AppState {
-  rootHandle: FileSystemDirectoryHandle | null;
+  rootHandle: PhotoStorageRoot | null;
   folderName: string;
   queue: QueueState;
   moving: boolean;

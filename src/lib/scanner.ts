@@ -52,6 +52,8 @@ async function recurseScan(
 
       const relativePath = currentPath === '' ? name : `${currentPath}/${name}`;
       photos.push({
+        id: relativePath,
+        storageKind: 'file-system-access',
         name,
         relativePath,
         parentDirHandle: dirHandle,

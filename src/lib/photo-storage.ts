@@ -1,9 +1,16 @@
-import type { ActionRecord, Category, MoveResult, PhotoEntry, UndoResult } from './types';
+import { Capacitor } from '@capacitor/core';
+import type { ActionRecord, Category, MoveResult, PhotoEntry, PhotoStorageRoot, UndoResult } from './types';
+import {
+  getNativePhotoDataUrl,
+  moveNativePhoto,
+  selectNativePhotoSource,
+  undoNativeMove,
+} from './native-photo-library';
 import { scanDirectory } from './scanner';
 import { movePhoto, undoMove } from './mover';
 
 export interface PhotoStorageSource {
-  rootHandle: FileSystemDirectoryHandle;
+  rootHandle: PhotoStorageRoot;
   folderName: string;
   photos: PhotoEntry[];
   warning?: string;
@@ -17,12 +24,12 @@ export interface PhotoStorageAdapter {
   unsupportedReason: () => string;
   selectSource: () => Promise<PhotoStorageSource>;
   movePhoto: (
-    rootHandle: FileSystemDirectoryHandle,
+    rootHandle: PhotoStorageRoot,
     photo: PhotoEntry,
     category: Category,
   ) => Promise<MoveResult>;
   undoMove: (
-    rootHandle: FileSystemDirectoryHandle,
+    rootHandle: PhotoStorageRoot,
     record: ActionRecord,
   ) => Promise<UndoResult>;
 }
@@ -34,6 +41,10 @@ function isAndroidBrowser(): boolean {
 
 function hasFileSystemAccess(): boolean {
   return typeof window !== 'undefined' && 'showDirectoryPicker' in window;
+}
+
+function isNativeAndroid(): boolean {
+  return Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'android';
 }
 
 function isSecureEnoughForPicker(): boolean {
@@ -94,7 +105,7 @@ const fileSystemAccessAdapter: PhotoStorageAdapter = {
     const photos = await scanDirectory(rootHandle);
 
     return {
-      rootHandle,
+      rootHandle: { kind: 'file-system-access', handle: rootHandle },
       folderName: rootHandle.name,
       photos,
       warning: isAndroidBrowser()
@@ -102,8 +113,47 @@ const fileSystemAccessAdapter: PhotoStorageAdapter = {
         : undefined,
     };
   },
-  movePhoto,
-  undoMove,
+  async movePhoto(rootHandle, photo, category) {
+    if (rootHandle.kind !== 'file-system-access' || !rootHandle.handle) {
+      return { success: false, error: '当前来源不是浏览器文件系统目录' };
+    }
+    return movePhoto(rootHandle.handle, photo, category);
+  },
+  async undoMove(rootHandle, record) {
+    if (rootHandle.kind !== 'file-system-access' || !rootHandle.handle) {
+      return { success: false, error: '当前来源不是浏览器文件系统目录' };
+    }
+    return undoMove(rootHandle.handle, record);
+  },
+};
+
+const nativeAndroidAdapter: PhotoStorageAdapter = {
+  id: 'capacitor-android',
+  label: 'Android APK 原生相册目录',
+  platform: 'android-web',
+  isSupported: isNativeAndroid,
+  unsupportedReason: () => '当前不是 Android APK 原生运行环境，无法使用 SAF/MediaStore 原生照片桥。',
+  async selectSource() {
+    const source = await selectNativePhotoSource();
+    return {
+      rootHandle: { kind: 'capacitor-android', sourceId: source.sourceId },
+      folderName: source.folderName,
+      photos: source.photos,
+      warning: 'APK 模式会通过 Android 原生目录授权移动原图。请先用少量照片验证系统相册刷新效果。',
+    };
+  },
+  async movePhoto(rootHandle, photo, category) {
+    if (rootHandle.kind !== 'capacitor-android' || !rootHandle.sourceId) {
+      return { success: false, error: '当前来源不是 Android APK 原生目录' };
+    }
+    return moveNativePhoto(rootHandle.sourceId, photo, category);
+  },
+  async undoMove(rootHandle, record) {
+    if (rootHandle.kind !== 'capacitor-android' || !rootHandle.sourceId) {
+      return { success: false, error: '当前来源不是 Android APK 原生目录' };
+    }
+    return undoNativeMove(rootHandle.sourceId, record);
+  },
 };
 
 const unsupportedAdapter: PhotoStorageAdapter = {
@@ -124,5 +174,19 @@ const unsupportedAdapter: PhotoStorageAdapter = {
 };
 
 export function getPhotoStorageAdapter(): PhotoStorageAdapter {
+  if (nativeAndroidAdapter.isSupported()) return nativeAndroidAdapter;
   return hasFileSystemAccess() ? fileSystemAccessAdapter : unsupportedAdapter;
+}
+
+export async function getPhotoPreviewUrl(photo: PhotoEntry, maxSize = 1600): Promise<string> {
+  if (photo.fileHandle) {
+    const file = await photo.fileHandle.getFile();
+    return URL.createObjectURL(file);
+  }
+
+  if (photo.storageKind === 'capacitor-android') {
+    return getNativePhotoDataUrl(photo, maxSize);
+  }
+
+  throw new Error('当前照片没有可用的预览来源');
 }

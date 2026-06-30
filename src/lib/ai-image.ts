@@ -1,4 +1,5 @@
 import type { PhotoEntry } from './types';
+import { getNativePhotoBase64 } from './native-photo-library';
 import { getExtension } from './scanner';
 import { UNPREVIEWABLE_EXTENSIONS } from './constants';
 
@@ -9,6 +10,12 @@ export async function prepareImage(
   try {
     const ext = getExtension(photo.name);
     if (UNPREVIEWABLE_EXTENSIONS.has(ext)) return null;
+
+    if (photo.storageKind === 'capacitor-android') {
+      return getNativePhotoBase64(photo, maxSize);
+    }
+
+    if (!photo.fileHandle) return null;
 
     const file = await photo.fileHandle.getFile();
     const url = URL.createObjectURL(file);

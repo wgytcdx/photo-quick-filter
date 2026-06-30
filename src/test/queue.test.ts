@@ -12,6 +12,8 @@ import type { PhotoEntry, Category, ActionRecord } from '../lib/types';
 
 function makePhoto(name: string, idx: number): PhotoEntry {
   return {
+    id: name,
+    storageKind: 'file-system-access',
     name,
     relativePath: name,
     parentDirHandle: {} as FileSystemDirectoryHandle,

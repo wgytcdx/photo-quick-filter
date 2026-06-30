@@ -75,6 +75,37 @@ pnpm build
 pnpm preview
 ```
 
+## Android APK 路线
+
+网页端如果在安卓 Chrome 中提示不支持 File System Access API，可以使用 APK 路线。APK 不调用浏览器的 `showDirectoryPicker()`，而是通过 Capacitor 原生插件 `PhotoLibrary` 使用 Android Storage Access Framework 选择可写照片目录。
+
+前置条件：
+
+- Android Studio
+- JDK 17+
+- 一台开启 USB 调试的 Android 手机
+
+```bash
+pnpm android:sync
+pnpm android:open
+```
+
+在 Android Studio 中运行到手机，点击“选择照片文件夹”后会弹出 Android 系统目录授权界面。请选择 `DCIM/Camera` 或你要整理的可写照片目录。
+
+本地打 debug APK：
+
+```bash
+pnpm android:debug
+```
+
+APK 模式能力：
+
+- 递归扫描授权目录中的 JPG / PNG / WebP / GIF / BMP / HEIC / HEIF。
+- 在授权目录下创建 `_delete_review`、`_keep`、`_stash`、`_favorite`。
+- 分类时复制到目标目录后删除原文件，避免直接覆盖。
+- 撤销时从分类目录复制回原目录，并删除分类目录中的文件。
+- AI 预筛选继续复用云端视觉模型流程，原生层会为前端提供压缩后的图片 data URL。
+
 ## 检查命令
 
 ```bash

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Photo Quick Filter</string>
+    <string name="title_activity_main">Photo Quick Filter</string>
+    <string name="package_name">com.wgytcdx.photoquickfilter</string>
+    <string name="custom_url_scheme">com.wgytcdx.photoquickfilter</string>
+</resources>

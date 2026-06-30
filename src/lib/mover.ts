@@ -45,6 +45,10 @@ export async function movePhoto(
   photo: PhotoEntry,
   category: Category,
 ): Promise<MoveResult> {
+  if (!photo.fileHandle || !photo.parentDirHandle) {
+    return { success: false, error: '当前照片缺少浏览器文件句柄，无法用网页文件系统移动' };
+  }
+
   const categoryDirName = CATEGORY_DIR_NAMES[category];
 
   try {

@@ -6,16 +6,22 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "android:sync": "pnpm build && cap sync android",
+    "android:open": "pnpm android:sync && cap open android",
+    "android:debug": "pnpm android:sync && cd android && ./gradlew :app:assembleDebug",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc -b"
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/core": "^8.4.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.4.1",
     "@eslint/js": "^10.0.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
