@@ -1,18 +1,21 @@
 import { useState, type ReactNode } from 'react';
 import type { AiConfig, AiPreprocessState } from '../lib/ai-types';
 import type { AiConfigContext } from '../lib/useAiConfig';
-import type { Category } from '../lib/types';
+import type { BatchMoveState, Category } from '../lib/types';
 import { CATEGORY_LABELS, CATEGORY_COLORS } from '../lib/constants';
 import { AiConfigPanel } from './AiConfigPanel';
 
 interface AiPanelProps {
   photoCount: number;
+  totalBytes: number;
   aiState: AiPreprocessState | null;
   suggestionStats: { deleteCount: number; keepCount: number; stashCount: number; favoriteCount: number; totalSuggested: number; unsuggested: number; heicCount: number };
   aiConfig: AiConfigContext;
   onStart: (config: AiConfig, prompt: string) => void;
   onCancel: () => void;
   onAdoptAll: (bucket: Category) => void;
+  batchMoveState: BatchMoveState;
+  onCancelBatchMove: () => void;
   onClearSuggestions: () => void;
   onClose: () => void;
   moving: boolean;
@@ -54,6 +57,48 @@ function formatTokenNum(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function estimateAiTokens(photoCount: number, totalBytes: number, config: AiConfig, prompt: string) {
+  const textTokens = Math.ceil(prompt.length / 1.6) + 120;
+  const outputTokens = 120;
+  const sizeFactor = Math.max(0.75, Math.min(3, (config.maxImageSize * config.maxImageSize) / (512 * 512)));
+  const imageLow = config.supportsVision ? Math.round(650 * sizeFactor) : 0;
+  const imageHigh = config.supportsVision ? Math.round(1800 * sizeFactor) : 0;
+  const lowPerPhoto = textTokens + outputTokens + imageLow;
+  const highPerPhoto = textTokens + outputTokens + imageHigh;
+  const avgFileSize = photoCount > 0 ? totalBytes / photoCount : 0;
+
+  return {
+    low: lowPerPhoto * photoCount,
+    high: highPerPhoto * photoCount,
+    lowPerPhoto,
+    highPerPhoto,
+    avgFileSize,
+  };
+}
+
+function BatchMoveProgress({ state, onCancel }: { state: BatchMoveState; onCancel: () => void }): ReactNode {
+  if (state.phase === 'idle' || state.phase === 'done') return null;
+  const progress = state.total > 0 ? (state.processed / state.total) * 100 : 0;
+  return (
+    <div className="ai-batch-progress">
+      <h4>{state.phase === 'rollback' ? '正在回滚本次批量移动' : '正在批量采纳建议'}</h4>
+      <div className="ai-progress-bar">
+        <div className="ai-progress-fill" style={{ width: `${progress}%` }} />
+      </div>
+      <p>{state.processed} / {state.total}{state.rolledBack > 0 ? `，已回滚 ${state.rolledBack}` : ''}</p>
+      {state.currentPhoto && <p className="ai-current-photo">当前: {state.currentPhoto}</p>}
+      {state.phase === 'running' && <button className="btn-ai-cancel" onClick={onCancel}>取消批量移动</button>}
+    </div>
+  );
 }
 
 function AiResultsView({ aiState, suggestionStats, onAdoptAll, onClearSuggestions, onClose }: {
@@ -251,11 +296,14 @@ function AiResultsView({ aiState, suggestionStats, onAdoptAll, onClearSuggestion
 export function AiPanel(props: AiPanelProps): ReactNode {
   const { aiState, onClose, aiConfig } = props;
   const phase = aiState?.phase ?? 'config';
+  const [confirmEstimate, setConfirmEstimate] = useState(false);
 
   const canStart = aiConfig.config.apiKey.length > 0 && aiConfig.effectivePrompt.length > 0 && props.photoCount > 0 && !props.moving;
+  const estimate = estimateAiTokens(props.photoCount, props.totalBytes, aiConfig.config, aiConfig.effectivePrompt);
 
   const handleStart = () => {
     if (canStart) {
+      setConfirmEstimate(false);
       props.onStart(aiConfig.config, aiConfig.effectivePrompt);
     }
   };
@@ -287,14 +335,28 @@ export function AiPanel(props: AiPanelProps): ReactNode {
               />
               <div className="ai-section ai-estimate">
                 <p>将对 <strong>{props.photoCount}</strong> 张照片生成 AI 建议</p>
+                <p>当前队列体积约 <strong>{formatBytes(props.totalBytes)}</strong>，平均 {formatBytes(estimate.avgFileSize)} / 张</p>
+                <p>预计消耗 <strong>{formatTokenNum(estimate.low)} - {formatTokenNum(estimate.high)}</strong> tokens</p>
+                <p className="ai-note-inline">单张约 {formatTokenNum(estimate.lowPerPhoto)} - {formatTokenNum(estimate.highPerPhoto)} tokens，并发 {Math.max(1, Math.min(10, aiConfig.config.concurrency || 10))}</p>
                 <p className="ai-note-inline">AI 只建议分类，不自动移动文件</p>
                 {!canStart && aiConfig.config.apiKey.length === 0 && <p className="ai-warning">请输入 API Key</p>}
                 {!canStart && aiConfig.effectivePrompt.length === 0 && <p className="ai-warning">请选择或编写提示词</p>}
               </div>
               <div className="ai-actions">
-                <button className="btn-ai-start" onClick={handleStart} disabled={!canStart}>
-                  开始 AI 预筛选
-                </button>
+                {!confirmEstimate ? (
+                  <button className="btn-ai-start" onClick={() => setConfirmEstimate(true)} disabled={!canStart}>
+                    预估无误，准备开始
+                  </button>
+                ) : (
+                  <>
+                    <button className="btn-ai-start" onClick={handleStart} disabled={!canStart}>
+                      确认并开始 AI 预筛选
+                    </button>
+                    <button className="btn-ai-close" onClick={() => setConfirmEstimate(false)}>
+                      返回调整
+                    </button>
+                  </>
+                )}
               </div>
             </>
           )}
@@ -302,13 +364,16 @@ export function AiPanel(props: AiPanelProps): ReactNode {
             <AiProgressView aiState={aiState} onCancel={props.onCancel} />
           )}
           {(phase === 'results' || phase === 'cancelled') && aiState && (
-            <AiResultsView
-              aiState={aiState}
-              suggestionStats={props.suggestionStats}
-              onAdoptAll={props.onAdoptAll}
-              onClearSuggestions={props.onClearSuggestions}
-              onClose={onClose}
-            />
+            <>
+              <BatchMoveProgress state={props.batchMoveState} onCancel={props.onCancelBatchMove} />
+              <AiResultsView
+                aiState={aiState}
+                suggestionStats={props.suggestionStats}
+                onAdoptAll={props.onAdoptAll}
+                onClearSuggestions={props.onClearSuggestions}
+                onClose={onClose}
+              />
+            </>
           )}
         </div>
       </div>

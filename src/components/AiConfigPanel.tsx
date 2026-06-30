@@ -135,6 +135,18 @@ export function AiConfigPanel({
             ? <span className="ai-vision-yes">支持图片视觉分析</span>
             : <span className="ai-vision-no">仅文本模式（当前服务商不支持图片输入，将基于文件元信息推断）</span>}
         </p>
+        <div className="ai-field">
+          <label>AI 并发数</label>
+          <input
+            type="number"
+            min={1}
+            max={10}
+            value={config.concurrency}
+            onChange={e => onConfigChange({ ...config, concurrency: Math.max(1, Math.min(10, Number(e.target.value) || 1)) })}
+            disabled={moving}
+          />
+          <p className="ai-note-inline">默认 10；遇到限流、发热或网络不稳定时可调低。</p>
+        </div>
         <TestResultDisplay result={testResult} />
         <div className="ai-config-actions">
           <button className="btn-ai-test" onClick={onTest} disabled={!canTest}>

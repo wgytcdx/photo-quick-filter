@@ -1,9 +1,11 @@
 import { Capacitor } from '@capacitor/core';
 import type { ActionRecord, Category, MoveResult, PhotoEntry, PhotoStorageRoot, UndoResult } from './types';
 import {
+  cancelNativeScan,
   getNativePhotoDataUrl,
   moveNativePhoto,
   selectNativePhotoSource,
+  scanNativePhotos,
   undoNativeMove,
 } from './native-photo-library';
 import { scanDirectory } from './scanner';
@@ -16,6 +18,16 @@ export interface PhotoStorageSource {
   warning?: string;
 }
 
+export interface PhotoScanBatch {
+  photos: PhotoEntry[];
+  nextCursor: string | null;
+  done: boolean;
+  cancelled?: boolean;
+  scannedCount: number;
+  totalBytes: number;
+  errors: string[];
+}
+
 export interface PhotoStorageAdapter {
   id: string;
   label: string;
@@ -23,6 +35,15 @@ export interface PhotoStorageAdapter {
   isSupported: () => boolean;
   unsupportedReason: () => string;
   selectSource: () => Promise<PhotoStorageSource>;
+  scanPhotos?: (
+    rootHandle: PhotoStorageRoot,
+    cursor: string | null,
+    pageSize: number,
+  ) => Promise<PhotoScanBatch>;
+  cancelScan?: (
+    rootHandle: PhotoStorageRoot,
+    cursor: string | null,
+  ) => Promise<void>;
   movePhoto: (
     rootHandle: PhotoStorageRoot,
     photo: PhotoEntry,
@@ -139,8 +160,18 @@ const nativeAndroidAdapter: PhotoStorageAdapter = {
       rootHandle: { kind: 'capacitor-android', sourceId: source.sourceId },
       folderName: source.folderName,
       photos: source.photos,
-      warning: 'APK 模式会通过 Android 原生目录授权移动原图。请先用少量照片验证系统相册刷新效果。',
+      warning: 'APK 模式会通过 Android 原生目录授权移动原图，并分批扫描大目录。',
     };
+  },
+  async scanPhotos(rootHandle, cursor, pageSize) {
+    if (rootHandle.kind !== 'capacitor-android' || !rootHandle.sourceId) {
+      throw new Error('当前来源不是 Android APK 原生目录');
+    }
+    return scanNativePhotos(rootHandle.sourceId, cursor, pageSize);
+  },
+  async cancelScan(rootHandle, cursor) {
+    if (rootHandle.kind !== 'capacitor-android' || !rootHandle.sourceId) return;
+    await cancelNativeScan(rootHandle.sourceId, cursor);
   },
   async movePhoto(rootHandle, photo, category) {
     if (rootHandle.kind !== 'capacitor-android' || !rootHandle.sourceId) {

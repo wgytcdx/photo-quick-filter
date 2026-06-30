@@ -7,6 +7,14 @@ export interface PhotoStorageRoot {
   sourceId?: string;
 }
 
+export interface ScanState {
+  phase: 'idle' | 'scanning' | 'done' | 'cancelled' | 'error';
+  scannedCount: number;
+  totalBytes: number;
+  errors: string[];
+  cursor: string | null;
+}
+
 export interface PhotoEntry {
   id: string;
   storageKind: StorageKind;
@@ -69,6 +77,15 @@ export interface UndoResult {
   error?: string;
 }
 
+export interface BatchMoveState {
+  phase: 'idle' | 'running' | 'cancelling' | 'rollback' | 'done' | 'error';
+  total: number;
+  processed: number;
+  rolledBack: number;
+  errors: string[];
+  currentPhoto: string;
+}
+
 export interface AppState {
   rootHandle: PhotoStorageRoot | null;
   folderName: string;
@@ -76,4 +93,6 @@ export interface AppState {
   moving: boolean;
   error: string | null;
   browserSupported: boolean;
+  scanState: ScanState;
+  batchMoveState: BatchMoveState;
 }

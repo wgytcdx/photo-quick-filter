@@ -13,6 +13,34 @@ import { ErrorBanner } from './components/ErrorBanner';
 import { WelcomeView, UnsupportedView } from './components/WelcomeView';
 import { AiPanel } from './components/AiPanel';
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function ScanPanel({ count, bytes, phase, onCancel }: {
+  count: number;
+  bytes: number;
+  phase: string;
+  onCancel: () => void;
+}): ReactNode {
+  return (
+    <div className="scan-panel">
+      <h2>{phase === 'scanning' ? '正在分批读取照片' : '照片读取已暂停'}</h2>
+      <div className="scan-stats">
+        <span><strong>{count}</strong> 张</span>
+        <span><strong>{formatBytes(bytes)}</strong></span>
+      </div>
+      <p>大目录会按批加载，当前页面保持可操作。照片会继续追加到队列中。</p>
+      {phase === 'scanning' && (
+        <button className="btn-scan-cancel" onClick={onCancel}>停止读取</button>
+      )}
+    </div>
+  );
+}
+
 function isEditableElement(): boolean {
   const el = document.activeElement;
   if (!el) return false;
@@ -98,6 +126,14 @@ export default function App(): ReactNode {
       <Header folderName={app.folderName} onReselect={app.selectFolder} />
       <StatusBar stats={app.stats} />
       {app.error && <ErrorBanner error={app.error} onDismiss={app.clearError} />}
+      {(app.scanState.phase === 'scanning' || (app.scanState.phase === 'cancelled' && app.stats.total === 0)) && (
+        <ScanPanel
+          count={app.scanState.scannedCount}
+          bytes={app.scanState.totalBytes}
+          phase={app.scanState.phase}
+          onCancel={app.cancelScan}
+        />
+      )}
       <div className="main-area">
         <PhotoViewer
           photo={app.currentPhoto}
@@ -119,23 +155,31 @@ export default function App(): ReactNode {
           <button
             className="btn-ai-trigger"
             onClick={() => app.setShowAiPanel(true)}
-            disabled={app.moving}
+            disabled={app.moving || app.scanRunning}
           >
-            AI 预筛选
+            {app.scanRunning ? '扫描完成后可 AI 预筛选' : 'AI 预筛选'}
           </button>
+          {app.scanState.phase === 'scanning' && (
+            <button className="btn-scan-side" onClick={app.cancelScan}>
+              停止读取照片
+            </button>
+          )}
           <RecentActions actions={app.recentActions} />
         </div>
       </div>
       {app.showAiPanel && (
         <AiPanel
           photoCount={app.stats.remaining}
+          totalBytes={app.scanState.totalBytes}
           aiState={app.aiState}
           suggestionStats={app.suggestionStats}
           aiConfig={aiConfig}
           onStart={app.startAiPreprocess}
           onCancel={app.cancelAiPreprocess}
           onAdoptAll={app.adoptAllByBucket}
-          onClearSuggestions={() => { app.setShowAiPanel(false); }}
+          batchMoveState={app.batchMoveState}
+          onCancelBatchMove={app.cancelBatchMove}
+          onClearSuggestions={() => { app.clearAiSuggestions(); app.setShowAiPanel(false); }}
           onClose={() => app.setShowAiPanel(false)}
           moving={app.moving}
         />

@@ -22,10 +22,16 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayDeque;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @CapacitorPlugin(name = "PhotoLibrary")
 public class PhotoLibraryPlugin extends Plugin {
@@ -34,8 +40,11 @@ public class PhotoLibraryPlugin extends Plugin {
     ));
 
     private static final Set<String> EXCLUDED_DIRS = new HashSet<>(Arrays.asList(
-        "_delete_review", "_keep", "_stash", "_favorite"
+        "_delete_review", "_keep", "_stash", "_favorite", "待删除", "保留", "暂存", "精选"
     ));
+
+    private final ExecutorService scanExecutor = Executors.newSingleThreadExecutor();
+    private final Map<String, ScanSession> scanSessions = new HashMap<>();
 
     @PluginMethod
     public void selectSource(PluginCall call) {
@@ -76,13 +85,73 @@ public class PhotoLibraryPlugin extends Plugin {
             return;
         }
 
-        JSArray photos = new JSArray();
-        scanDirectory(root, "", photos);
-
         JSObject response = new JSObject();
         response.put("sourceId", treeUri.toString());
         response.put("folderName", root.getName() == null ? "Android Photos" : root.getName());
-        response.put("photos", photos);
+        response.put("rootUri", treeUri.toString());
+        call.resolve(response);
+    }
+
+    @PluginMethod
+    public void scanPhotos(PluginCall call) {
+        String sourceId = call.getString("sourceId");
+        String cursor = call.getString("cursor", "");
+        Integer pageSizeValue = call.getInt("pageSize", 200);
+        int pageSize = Math.max(25, Math.min(500, pageSizeValue == null ? 200 : pageSizeValue));
+        if (sourceId == null) {
+            call.reject("缺少照片来源");
+            return;
+        }
+
+        scanExecutor.execute(() -> {
+            try {
+                ScanSession session = getOrCreateScanSession(sourceId, cursor);
+                ScanBatchResult batch = readScanBatch(session, pageSize);
+
+                JSObject response = new JSObject();
+                response.put("photos", batch.photos);
+                response.put("nextCursor", batch.done ? null : session.id);
+                response.put("done", batch.done);
+                response.put("cancelled", batch.cancelled);
+                response.put("scannedCount", session.scannedCount);
+                response.put("totalBytes", session.totalBytes);
+                response.put("errors", batch.errors);
+
+                if (batch.done || batch.cancelled) {
+                    synchronized (scanSessions) {
+                        scanSessions.remove(session.id);
+                    }
+                }
+
+                call.resolve(response);
+            } catch (Exception e) {
+                call.reject("扫描照片失败", e);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void cancelScan(PluginCall call) {
+        String sourceId = call.getString("sourceId");
+        String cursor = call.getString("cursor", "");
+        if (sourceId == null) {
+            call.reject("缺少照片来源");
+            return;
+        }
+
+        synchronized (scanSessions) {
+            if (cursor != null && !cursor.isEmpty()) {
+                ScanSession session = scanSessions.get(cursor);
+                if (session != null) session.cancelled = true;
+            } else {
+                for (ScanSession session : scanSessions.values()) {
+                    if (sourceId.equals(session.sourceId)) session.cancelled = true;
+                }
+            }
+        }
+
+        JSObject response = new JSObject();
+        response.put("cancelled", true);
         call.resolve(response);
     }
 
@@ -215,23 +284,63 @@ public class PhotoLibraryPlugin extends Plugin {
         }
     }
 
-    private void scanDirectory(DocumentFile dir, String currentPath, JSArray photos) {
-        DocumentFile[] files = dir.listFiles();
-        Arrays.sort(files, (a, b) -> safeName(a, "").compareToIgnoreCase(safeName(b, "")));
+    private ScanSession getOrCreateScanSession(String sourceId, String cursor) throws Exception {
+        synchronized (scanSessions) {
+            if (cursor != null && !cursor.isEmpty()) {
+                ScanSession existing = scanSessions.get(cursor);
+                if (existing == null) throw new Exception("扫描任务已结束，请重新选择目录");
+                return existing;
+            }
 
-        for (DocumentFile file : files) {
+            DocumentFile root = requireRoot(sourceId);
+            ScanSession session = new ScanSession(sourceId, root);
+            scanSessions.put(session.id, session);
+            return session;
+        }
+    }
+
+    private ScanBatchResult readScanBatch(ScanSession session, int pageSize) {
+        JSArray photos = new JSArray();
+        JSArray errors = new JSArray();
+
+        while (!session.cancelled && photos.length() < pageSize && !session.stack.isEmpty()) {
+            DirFrame frame = session.stack.peek();
+            if (frame.files == null) {
+                try {
+                    frame.files = frame.dir.listFiles();
+                    Arrays.sort(frame.files, (a, b) -> safeName(a, "").compareToIgnoreCase(safeName(b, "")));
+                } catch (Exception e) {
+                    errors.put(frame.path + ": " + e.getMessage());
+                    session.stack.pop();
+                    continue;
+                }
+            }
+
+            if (frame.index >= frame.files.length) {
+                session.stack.pop();
+                continue;
+            }
+
+            DocumentFile file = frame.files[frame.index++];
             String name = file.getName();
             if (name == null) continue;
+
             if (file.isDirectory()) {
-                if (EXCLUDED_DIRS.contains(name)) continue;
-                scanDirectory(file, joinRelative(currentPath, name), photos);
+                if (!EXCLUDED_DIRS.contains(name)) {
+                    session.stack.push(new DirFrame(file, joinRelative(frame.path, name)));
+                }
                 continue;
             }
 
             if (file.isFile() && isPhotoFile(name)) {
-                photos.put(toPhoto(file, joinRelative(currentPath, name)));
+                long size = Math.max(0L, file.length());
+                session.scannedCount++;
+                session.totalBytes += size;
+                photos.put(toPhoto(file, joinRelative(frame.path, name)));
             }
         }
+
+        return new ScanBatchResult(photos, errors, session.stack.isEmpty(), session.cancelled);
     }
 
     private JSObject toPhoto(DocumentFile file, String relativePath) {
@@ -349,11 +458,11 @@ public class PhotoLibraryPlugin extends Plugin {
 
     private String categoryDirName(String category) {
         switch (category) {
-            case "delete": return "_delete_review";
-            case "keep": return "_keep";
-            case "stash": return "_stash";
-            case "favorite": return "_favorite";
-            default: return "_stash";
+            case "delete": return "待删除";
+            case "keep": return "保留";
+            case "stash": return "暂存";
+            case "favorite": return "精选";
+            default: return "暂存";
         }
     }
 
@@ -387,5 +496,46 @@ public class PhotoLibraryPlugin extends Plugin {
 
     private void notifyChanged(Uri uri) {
         getContext().getContentResolver().notifyChange(uri, null);
+    }
+
+    private static class DirFrame {
+        final DocumentFile dir;
+        final String path;
+        DocumentFile[] files;
+        int index = 0;
+
+        DirFrame(DocumentFile dir, String path) {
+            this.dir = dir;
+            this.path = path;
+        }
+    }
+
+    private static class ScanSession {
+        final String id;
+        final String sourceId;
+        final ArrayDeque<DirFrame> stack = new ArrayDeque<>();
+        boolean cancelled = false;
+        int scannedCount = 0;
+        long totalBytes = 0L;
+
+        ScanSession(String sourceId, DocumentFile root) {
+            this.id = UUID.randomUUID().toString();
+            this.sourceId = sourceId;
+            this.stack.push(new DirFrame(root, ""));
+        }
+    }
+
+    private static class ScanBatchResult {
+        final JSArray photos;
+        final JSArray errors;
+        final boolean done;
+        final boolean cancelled;
+
+        ScanBatchResult(JSArray photos, JSArray errors, boolean done, boolean cancelled) {
+            this.photos = photos;
+            this.errors = errors;
+            this.done = done;
+            this.cancelled = cancelled;
+        }
     }
 }

@@ -17,6 +17,7 @@ export interface AiConfig {
   apiKey: string;
   model: string;
   maxImageSize: number;
+  concurrency: number;
   supportsVision: boolean;
 }
 
@@ -98,6 +99,7 @@ export const DEFAULT_AI_CONFIG: AiConfig = {
   apiKey: '',
   model: 'gpt-4o-mini',
   maxImageSize: 512,
+  concurrency: 10,
   supportsVision: true,
 };
 

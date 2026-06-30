@@ -1,13 +1,15 @@
 import type { Category } from './types';
 
 export const CATEGORY_DIR_NAMES: Record<Category, string> = {
-  delete: '_delete_review',
-  keep: '_keep',
-  stash: '_stash',
-  favorite: '_favorite',
+  delete: '待删除',
+  keep: '保留',
+  stash: '暂存',
+  favorite: '精选',
 };
 
-export const EXCLUDED_DIRS = new Set(Object.values(CATEGORY_DIR_NAMES));
+export const LEGACY_CATEGORY_DIR_NAMES = ['_delete_review', '_keep', '_stash', '_favorite'];
+
+export const EXCLUDED_DIRS = new Set([...Object.values(CATEGORY_DIR_NAMES), ...LEGACY_CATEGORY_DIR_NAMES]);
 
 export const PHOTO_EXTENSIONS = new Set([
   'jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp', 'heic', 'heif',

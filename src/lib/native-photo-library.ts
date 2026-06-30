@@ -14,7 +14,18 @@ interface NativePhotoPayload {
 interface NativeSelectSourceResult {
   sourceId: string;
   folderName: string;
+  rootUri?: string;
+  photos?: NativePhotoPayload[];
+}
+
+interface NativeScanPhotosResult {
   photos: NativePhotoPayload[];
+  nextCursor: string | null;
+  done: boolean;
+  cancelled?: boolean;
+  scannedCount: number;
+  totalBytes: number;
+  errors?: string[];
 }
 
 interface NativeMoveResult {
@@ -29,6 +40,12 @@ interface NativeUndoResult {
 
 interface NativePhotoLibraryPlugin {
   selectSource(): Promise<NativeSelectSourceResult>;
+  scanPhotos(options: {
+    sourceId: string;
+    cursor?: string | null;
+    pageSize?: number;
+  }): Promise<NativeScanPhotosResult>;
+  cancelScan(options: { sourceId: string; cursor?: string | null }): Promise<{ cancelled: boolean }>;
   readPhotoDataUrl(options: { uri: string; maxSize: number }): Promise<{ dataUrl: string }>;
   movePhoto(options: {
     sourceId: string;
@@ -72,8 +89,37 @@ export async function selectNativePhotoSource(): Promise<{
   return {
     sourceId: result.sourceId,
     folderName: result.folderName,
-    photos: result.photos.map(toPhotoEntry),
+    photos: (result.photos ?? []).map(toPhotoEntry),
   };
+}
+
+export async function scanNativePhotos(
+  sourceId: string,
+  cursor: string | null,
+  pageSize: number,
+): Promise<{
+  photos: PhotoEntry[];
+  nextCursor: string | null;
+  done: boolean;
+  cancelled: boolean;
+  scannedCount: number;
+  totalBytes: number;
+  errors: string[];
+}> {
+  const result = await NativePhotoLibrary.scanPhotos({ sourceId, cursor, pageSize });
+  return {
+    photos: result.photos.map(toPhotoEntry),
+    nextCursor: result.nextCursor ?? null,
+    done: result.done,
+    cancelled: result.cancelled ?? false,
+    scannedCount: result.scannedCount,
+    totalBytes: result.totalBytes,
+    errors: result.errors ?? [],
+  };
+}
+
+export async function cancelNativeScan(sourceId: string, cursor: string | null): Promise<void> {
+  await NativePhotoLibrary.cancelScan({ sourceId, cursor });
 }
 
 export async function getNativePhotoDataUrl(photo: PhotoEntry, maxSize: number): Promise<string> {
