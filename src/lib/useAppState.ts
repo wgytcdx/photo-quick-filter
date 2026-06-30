@@ -2,15 +2,10 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import type { AppState, Category, PhotoEntry, ActionRecord } from './types';
 import type { AiConfig, AiPreprocessState, AiPhotoAnalysis, AiSuggestion } from './ai-types';
 import { initialQueueState, classify, undo, computeStats, getCurrentPhoto, isComplete, getRecentActions } from './queue';
-import { scanDirectory } from './scanner';
-import { movePhoto, undoMove } from './mover';
+import { getPhotoStorageAdapter } from './photo-storage';
 import { analyzeOnePhoto } from './ai-engine';
 import { UNPREVIEWABLE_EXTENSIONS } from './constants';
 import { getExtension } from './scanner';
-
-function isBrowserSupported(): boolean {
-  return typeof window !== 'undefined' && 'showDirectoryPicker' in window;
-}
 
 const INITIAL_AI_STATE: AiPreprocessState = {
   phase: 'config',
@@ -26,13 +21,14 @@ const INITIAL_AI_STATE: AiPreprocessState = {
 };
 
 export function useAppState() {
+  const storageAdapter = getPhotoStorageAdapter();
   const [state, setState] = useState<AppState>(() => ({
     rootHandle: null,
     folderName: '',
     queue: initialQueueState(),
     moving: false,
     error: null,
-    browserSupported: isBrowserSupported(),
+    browserSupported: storageAdapter.isSupported(),
   }));
 
   const [aiState, setAiState] = useState<AiPreprocessState>(INITIAL_AI_STATE);
@@ -47,19 +43,18 @@ export function useAppState() {
 
   const selectFolder = useCallback(async () => {
     try {
-      const dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
-      const photos = await scanDirectory(dirHandle);
-      if (photos.length === 0) {
+      const source = await storageAdapter.selectSource();
+      if (source.photos.length === 0) {
         setState(prev => ({ ...prev, error: '所选文件夹中没有照片文件' }));
         return;
       }
       setState({
-        rootHandle: dirHandle,
-        folderName: dirHandle.name,
-        queue: { photos, currentIndex: 0, undoStack: [] },
+        rootHandle: source.rootHandle,
+        folderName: source.folderName,
+        queue: { photos: source.photos, currentIndex: 0, undoStack: [] },
         moving: false,
-        error: null,
-        browserSupported: isBrowserSupported(),
+        error: source.warning ?? null,
+        browserSupported: storageAdapter.isSupported(),
       });
       setAiState(INITIAL_AI_STATE);
       setAiSuggestions({});
@@ -70,7 +65,7 @@ export function useAppState() {
         setState(prev => ({ ...prev, error: `选择文件夹失败: ${e.message}` }));
       }
     }
-  }, []);
+  }, [storageAdapter]);
 
   const classifyPhoto = useCallback(async (category: Category) => {
     const current = state.queue;
@@ -81,7 +76,7 @@ export function useAppState() {
 
     setState(prev => ({ ...prev, moving: true, error: null }));
 
-    const result = await movePhoto(rootHandle, photo, category);
+    const result = await storageAdapter.movePhoto(rootHandle, photo, category);
 
     if (!result.success) {
       setState(prev => ({ ...prev, moving: false, error: result.error ?? '移动失败' }));
@@ -108,7 +103,7 @@ export function useAppState() {
       delete next[photo.relativePath];
       return next;
     });
-  }, [state.queue, state.rootHandle, state.moving]);
+  }, [state.queue, state.rootHandle, state.moving, storageAdapter]);
 
   const adoptSuggestion = useCallback(async () => {
     const current = state.queue;
@@ -120,7 +115,7 @@ export function useAppState() {
 
     setState(prev => ({ ...prev, moving: true, error: null }));
 
-    const result = await movePhoto(rootHandle, photo, suggestion.bucket);
+    const result = await storageAdapter.movePhoto(rootHandle, photo, suggestion.bucket);
 
     if (!result.success) {
       setState(prev => ({ ...prev, moving: false, error: result.error ?? '移动失败' }));
@@ -151,7 +146,7 @@ export function useAppState() {
       delete next[photo.relativePath];
       return next;
     });
-  }, [state.queue, state.rootHandle, state.moving, aiSuggestions]);
+  }, [state.queue, state.rootHandle, state.moving, aiSuggestions, storageAdapter]);
 
   const adoptAllByBucket = useCallback(async (bucket: Category) => {
     const rootHandle = rootHandleRef.current;
@@ -173,7 +168,7 @@ export function useAppState() {
       const idx = workingQueue.photos.findIndex(p => p.relativePath === photo.relativePath);
       if (idx === -1) continue;
 
-      const result = await movePhoto(rootHandle, photo, bucket);
+      const result = await storageAdapter.movePhoto(rootHandle, photo, bucket);
       if (!result.success) {
         errors.push(`${photo.name}: ${result.error ?? '移动失败'}`);
         continue;
@@ -208,7 +203,7 @@ export function useAppState() {
       for (const path of adoptedPaths) delete next[path];
       return next;
     });
-  }, [state.queue, state.moving, aiSuggestions]);
+  }, [state.queue, state.moving, aiSuggestions, storageAdapter]);
 
   const undoAction = useCallback(async () => {
     const current = state.queue;
@@ -219,7 +214,7 @@ export function useAppState() {
     setState(prev => ({ ...prev, moving: true, error: null }));
 
     const lastRecord = current.undoStack[current.undoStack.length - 1];
-    const result = await undoMove(rootHandle, lastRecord);
+    const result = await storageAdapter.undoMove(rootHandle, lastRecord);
 
     if (!result.success) {
       setState(prev => ({ ...prev, moving: false, error: result.error ?? '撤销失败' }));
@@ -249,7 +244,7 @@ export function useAppState() {
         },
       }));
     }
-  }, [state.queue, state.rootHandle, state.moving]);
+  }, [state.queue, state.rootHandle, state.moving, storageAdapter]);
 
   const startAiPreprocess = useCallback(async (config: AiConfig, prompt: string) => {
     const rootHandle = rootHandleRef.current;
@@ -353,6 +348,8 @@ export function useAppState() {
     currentSuggestion,
     suggestionStats,
     showAiPanel,
+    storageAdapter,
+    storageUnsupportedReason: storageAdapter.unsupportedReason(),
     selectFolder,
     classifyPhoto,
     adoptSuggestion,

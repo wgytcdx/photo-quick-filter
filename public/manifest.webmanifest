@@ -1,0 +1,17 @@
+{
+  "name": "Photo Quick Filter",
+  "short_name": "Quick Filter",
+  "description": "本地照片快速筛选工具，支持安卓网页目录读写验证和 AI 预筛选。",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f0f1a",
+  "theme_color": "#0f0f1a",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

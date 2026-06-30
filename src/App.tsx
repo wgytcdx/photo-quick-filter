@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
+import type { Category } from './lib/types';
 import { useAppState } from './lib/useAppState';
 import { useAiConfig } from './lib/useAiConfig';
 import { KEY_TO_CATEGORY } from './lib/constants';
@@ -65,14 +66,18 @@ export default function App(): ReactNode {
   }, [app.currentSuggestion]);
 
   if (!app.browserSupported) {
-    return <UnsupportedView />;
+    return <UnsupportedView reason={app.storageUnsupportedReason} />;
   }
 
   if (!app.rootHandle) {
     return (
       <div className="app">
         {app.error && <ErrorBanner error={app.error} onDismiss={app.clearError} />}
-        <WelcomeView onSelect={app.selectFolder} />
+        <WelcomeView
+          onSelect={app.selectFolder}
+          storageLabel={app.storageAdapter.label}
+          isAndroidWeb={app.storageAdapter.platform === 'android-web'}
+        />
       </div>
     );
   }
@@ -94,7 +99,14 @@ export default function App(): ReactNode {
       <StatusBar stats={app.stats} />
       {app.error && <ErrorBanner error={app.error} onDismiss={app.clearError} />}
       <div className="main-area">
-        <PhotoViewer photo={app.currentPhoto} suggestion={app.currentSuggestion} />
+        <PhotoViewer
+          photo={app.currentPhoto}
+          suggestion={app.currentSuggestion}
+          moving={app.moving}
+          canUndo={app.hasUndo}
+          onSwipeClassify={(category: Category) => app.classifyPhoto(category)}
+          onLongPressUndo={app.undoAction}
+        />
         <div className="sidebar">
           <ActionBar
             onClassify={app.classifyPhoto}

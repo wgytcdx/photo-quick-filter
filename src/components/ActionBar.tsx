@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useRef } from 'react';
 import type { Category } from '../lib/types';
 import type { AiSuggestion } from '../lib/ai-types';
 import { CATEGORY_LABELS, CATEGORY_COLORS, CATEGORY_KEYS } from '../lib/constants';
@@ -35,6 +36,15 @@ function ActionButton({ category, onClick, disabled }: ActionButtonProps): React
 
 export function ActionBar({ onClassify, onUndo, onAdoptSuggestion, moving, hasUndo, currentSuggestion }: ActionBarProps): ReactNode {
   const disabled = moving;
+  const undoTimerRef = useRef<number | null>(null);
+  const undoLongPressedRef = useRef(false);
+
+  function clearUndoTimer(): void {
+    if (undoTimerRef.current) {
+      window.clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    }
+  }
 
   return (
     <div className="action-panel">
@@ -62,7 +72,25 @@ export function ActionBar({ onClassify, onUndo, onAdoptSuggestion, moving, hasUn
       )}
       <button
         className="undo-btn"
-        onClick={onUndo}
+        onClick={() => {
+          clearUndoTimer();
+          if (undoLongPressedRef.current) {
+            undoLongPressedRef.current = false;
+            return;
+          }
+          onUndo();
+        }}
+        onPointerDown={e => {
+          if (e.pointerType === 'mouse' || disabled || !hasUndo) return;
+          undoLongPressedRef.current = false;
+          undoTimerRef.current = window.setTimeout(() => {
+            undoLongPressedRef.current = true;
+            onUndo();
+          }, 650);
+        }}
+        onPointerCancel={clearUndoTimer}
+        onPointerLeave={clearUndoTimer}
+        onPointerUp={clearUndoTimer}
         disabled={disabled || !hasUndo}
       >
         撤销上一步 (Ctrl+Z)
